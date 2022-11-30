@@ -1,0 +1,167 @@
+TEMPERATURE AND HUMIDITY SENSOR POST-PRODUCT DELIVERY
+
+MATERIALS
+    Raspberry Pi 4 Model B motherboard
+    Raspberry Pi 3 Model B+ motherboard
+    Micro SD cards
+    DHT22 sensors
+    Ethernet cables
+    HDMI cable
+    HDMI to micro HDMI
+    Mouse and Keyboard
+    Adapter with at least 3.0 amps for Raspberry Pi 4 and adapter with at least 2.5 amps for Raspberry Pi 3
+    USB to micro USB cable as power supply for Raspberry Pi 3
+    USB-C cable as power supply for Raspberry Pi 4 
+    Monitor
+
+RASPBIAN OPERATING SYSTEMS
+    Install Raspbian Pi Operating Systems using Raspberry Pi Imager
+    Install the Raspberry Pi Imager onto computer
+    Attach micro SD card to computer
+    In the Imager, select “Choose OS” and “Raspberry Pi OS (other)” on the pop up window. Select “Raspberry Pi OS (64-bit)” 
+    Select “Choose Storage” and select the micro SD card as storage then click “Write” to download the Raspbian operating system onto the micro SD card
+
+SETTING UP MOTHERBOARDS
+    Attach the micro SD card to the Raspberry Pi after OS installation
+    Connect mouse, keyboard, and ethernet cable
+    Connect a monitor using HDMI cable for the Raspberry Pi 3 or HDMI to micro HDMI for the Raspberry Pi 4
+    Attach power supply
+    Finishing the set up
+    Click on Next to start the setup.
+    Set your Country, Language, and Timezone, then click on Next again.
+    Enter a new username and password for your Raspberry Pi and click on Next.
+    Set up your screen so that the Desktop completely fills your monitor.
+    Connect to your wireless network by selecting its name, entering the password, and clicking on Next.
+    Click on Next, and let the wizard check for updates to Raspberry Pi OS and install them
+    Click on Restart to finish the setup
+
+TERMINAL/COMMAND LINE
+Enter the following into terminal or command line
+    sudo apt-get update
+    sudo apt-get upgrade
+    sudo pip3 install adafruit-circuitpython-dht
+
+PYTHON SCRIPT
+sudo nano dht_test.py
+Paste the following code
+# SPDX-FileCopyrightText: 2021 ladyada for Adafruit Industries
+# SPDX-License-Identifier: MIT
+import logging
+import time
+import board
+import adafruit_dht
+# Initial the dht device, with data pin connected to:
+dhtDevice = adafruit_dht.DHT22(board.D18)
+
+# you can pass DHT22 use_pulseio=False if you wouldn't like to use pulseio.
+# This may be necessary on a Linux single board computer like the Raspberry Pi,
+# but it will not work in CircuitPython.
+dhtDevice = adafruit_dht.DHT22(board.D4, use_pulseio=False)
+logging.basicConfig(filename='/home/isam/temperature.log', filemode='a', format='%(created)f %(message)s', level=logging.INFO)
+
+while True:
+    try:
+        # Print the values to the serial port
+        temperature_c = dhtDevice.temperature
+        temperature_f = temperature_c * (9 / 5) + 32
+        humidity = dhtDevice.humidity
+        logging.info('Temp={0:0.1f} C and Humidity={1:0.1f} %'.format(temperature_f, humidity))
+        # print(
+        #   "Temp: {:.1f} F / {:.1f} C    Humidity: {}% ".format(
+         #       temperature_f, temperature_c, humidity
+          #  )
+       # )
+
+    except RuntimeError as error:
+        # Errors happen fairly often, DHT's are hard to read, just keep going
+        # print(error.args[0])
+        time.sleep(2.0)
+        continue
+    except Exception as error:
+        dhtDevice.exit()
+        raise error
+
+    time.sleep(0.5)
+
+
+# Create Log File Called temperature.log
+
+EXPORTING TO GRAFANA 
+InfluxDB Install
+    sudo apt update
+    sudo apt upgrade
+    curl https://repos.influxdata.com/influxdb.key | gpg --dearmor | sudo tee /usr/share/keyrings/influxdb-archive-keyring.gpg >/dev/null
+    echo "deb [signed-by=/usr/share/keyrings/influxdb-archive-keyring.gpg] https://repos.influxdata.com/debian $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/influxdb.list
+    sudo apt update
+    sudo apt install influxdb
+    sudo systemctl unmask influxdb
+    sudo systemctl enable influxdb
+    sudo systemctl start influxdb
+Telegraf Install
+    # Get current .deb package from this link and install using wget
+    https://github.com/influxdata/telegraf/releases
+    sudo dpkg -i “Insert Name of .deb file”
+Under Output Plugins in telegraf.conf paste the following
+#Configuration for sending metrics to InfluxDB
+    [[outputs.influxdb]]
+    ## The full HTTP or UDP URL for your InfluxDB instance.
+    urls = ["http://localhost:8086"] # required
+
+    ## The target database for metrics (telegraf will create it if not exists).
+    database = "temperature" # required
+
+    ## Name of existing retention policy to write to.  Empty string writes to
+    ## the default retention policy.
+    retention_policy = ""
+    ## Write consistency (clusters only), can be: "any", "one", "quorum", "all"
+    write_consistency = "any"
+
+    ## Write timeout (for the InfluxDB client), formatted as a string.
+    ## If not provided, will default to 5s. 0s means no timeout (not recommended).
+    timeout = "10s"
+    username = "telegraf"
+    password = "metricsmetricsmetricsmetrics"
+ 
+Under Input Plugins paste the following 
+    [[inputs.logparser]]
+    ## file(s) to read:
+    files = ["/home/isam/temperature.log"]
+
+    # Only send these fields to the output plugins
+    fieldpass = ["temperature", "humidity", "timestamp"]
+    tagexclude = ["path"]
+
+    # Read the file from beginning on telegraf startup.
+    from_beginning = true
+    name_override = "room_temperature_humidity"
+
+    ## For parsing logstash-style "grok" patterns:
+    [inputs.logparser.grok]
+        patterns = ["%{TEMPERATURE_HUMIDITY_PATTERN}"]
+        custom_patterns = '''
+        TEMPERATURE_HUMIDITY_PATTERN %{NUMBER:timestamp:ts-epoch} Temp=%{NUMBER:temperature:float} %{GREEDYDATA}=%{NUMBER:humidity:float}%{GREEDYDATA}
+        '''
+        timezone = "America/New_York"
+Create System service file 
+    Sudo nano /lib/systemd/system/temperature.service
+Paste this code
+    [Unit]
+    Description=Temperature Sensor DataCenter
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=root
+    ExecStart=/usr/bin/python3.9 -u /home/isam/dht_test.py
+    #ExecStart= sudo python3 /home/isam/dht_test.py
+    Restart=always
+    RestartSec=5
+    TimeoutSec=60
+    RuntimeMaxSec=infinity
+
+    [Install]
+    WantedBy=multi-user.target
+    Sudo systemctl daemon-reload
+    Sudo systemctl enable temperature 
+    Sudo systemctl start temperature
+

@@ -1,0 +1,19 @@
+[Unit]
+Description=Temperature Sensor DataCenter
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3.9 -u /home/"Enter Username"/dht_test.py
+#ExecStart= sudo python3 /home/"Enter Username"/dht_test.py
+Restart=always
+RestartSec=5
+TimeoutSec=60
+RuntimeMaxSec=infinity
+
+[Install]
+WantedBy=multi-user.target
+
+
+
